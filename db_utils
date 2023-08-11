@@ -1,1 +1,85 @@
+import psycopg2
+from psycopg2 import sql
+from psycopg2.extras import DictCursor
 
+# Database connection parameters
+db_params = {
+    "host": "your_host",
+    "database": "your_database",
+    "user": "your_user",
+    "password": "your_password",
+}
+
+BATCH_SIZE = 1000  # Number of records to process in each batch
+NUM_COLUMNS = 100  # Number of columns in the dataset
+
+def upsert_users_batch(conn, batch):
+    with conn.cursor(cursor_factory=DictCursor) as cursor:
+        # Get the column names present in the dataset
+        data_columns = set(batch[0].keys())
+        
+        # Get the column names present in the SQL table
+        existing_columns = get_existing_columns(conn)
+        
+        # Generate a list of columns that are common between dataset and table
+        common_columns = list(data_columns.intersection(existing_columns))
+        
+        if not common_columns:
+            return
+        
+        insert_values = ', '.join(['%s'] * len(common_columns))
+        upsert_query = sql.SQL("""
+            INSERT INTO users ({})
+            VALUES {}
+            ON CONFLICT (id)
+            DO UPDATE SET {}
+        """).format(
+            sql.SQL(', ').join(map(sql.Identifier, common_columns)),
+            sql.SQL(', ').join([sql.SQL(insert_values)] * len(batch)),
+            sql.SQL(', ').join([sql.SQL(f"{col}=EXCLUDED.{col}") for col in common_columns])
+        )
+        
+        values = []
+        for user_data in batch:
+            values.append([user_data.get(col, None) for col in common_columns])
+        
+        psycopg2.extras.execute_values(cursor, upsert_query, values)
+        conn.commit()
+
+def get_existing_columns(conn):
+    with conn.cursor() as cursor:
+        cursor.execute("SELECT * FROM users LIMIT 0")
+        return [desc[0] for desc in cursor.description]
+
+def generate_user_data_batch(batch_size):
+    # Replace this with your actual data generation logic
+    for i in range(1, batch_size + 1):
+        user_data = {"id": i}
+        for j in range(1, NUM_COLUMNS + 1):
+            user_data[f"column{j}"] = f"value_{i}_{j}"
+        yield user_data
+
+try:
+    # Establish a connection to the database
+    conn = psycopg2.connect(**db_params)
+    
+    # Generate user data in batches
+    user_data_generator = generate_user_data_batch(BATCH_SIZE)
+    
+    batch = []
+    for user_data in user_data_generator:
+        batch.append(user_data)
+        
+        if len(batch) == BATCH_SIZE:
+            upsert_users_batch(conn, batch)
+            batch = []
+    
+    # Upsert any remaining records in the last batch
+    if batch:
+        upsert_users_batch(conn, batch)
+    
+except psycopg2.Error as e:
+    print("Error:", e)
+finally:
+    if conn:
+        conn.close()
