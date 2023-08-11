@@ -1,1 +1,71 @@
+## Get values from Azure Key Store
+from azure.identity import DefaultAzureCredential
+from azure.keyvault.secrets import SecretClient
+
+# Azure Key Vault configuration
+keyvault_name = "your-keyvault-name"
+credential = DefaultAzureCredential()
+
+# Create a SecretClient
+keyvault_uri = f"https://{keyvault_name}.vault.azure.net"
+client = SecretClient(vault_url=keyvault_uri, credential=credential)
+
+# List of secret names you want to retrieve
+secret_names = ["secret-name-1", "secret-name-2"]
+
+def retrieve_secrets(secret_names):
+    secrets = {}
+    for secret_name in secret_names:
+        try:
+            secret = client.get_secret(secret_name)
+            secrets[secret_name] = secret.value
+        except Exception as e:
+            print(f"Error retrieving secret {secret_name}: {e}")
+    return secrets
+
+try:
+    retrieved_secrets = retrieve_secrets(secret_names)
+    secret_name_1 = retrieved_secrets.get("secret-name-1")
+    secret_name_2 = retrieved_secrets.get("secret-name-2")
+    
+    print(f"Secret 'secret-name-1': {secret_name_1}")
+    print(f"Secret 'secret-name-2': {secret_name_2}")
+except Exception as e:
+    print("Error:", e)
+
+
+
+
+##Read File from Azure File storage mounted to Azure VM
+import os
+from openpyxl import load_workbook
+
+# Specify the path to the mounted Azure File Storage directory
+file_storage_path = "/mnt/azure-file-storage"
+
+# Function to read a large XLS file in the specified directory using read-only mode
+def read_large_xls_file(file_path):
+    try:
+        # Read Excel file using openpyxl in read-only mode
+        workbook = load_workbook(filename=file_path, read_only=True)
+        return workbook
+    except Exception as e:
+        print(f"Error reading {file_path}: {e}")
+        return None
+
+try:
+    xls_file_name = "large_file.xlsx"  # Replace with the actual file name
+    xls_file_path = os.path.join(file_storage_path, xls_file_name)
+    
+    xls_workbook = read_large_xls_file(xls_file_path)
+    
+    if xls_workbook:
+        print(f"Data from {xls_file_name}:")
+        for sheet_name in xls_workbook.sheetnames:
+            sheet = xls_workbook[sheet_name]
+            for row in sheet.iter_rows(values_only=True):
+                print(row)
+        print("=" * 40)
+except Exception as e:
+    print("Error:", e)
 
