@@ -1,0 +1,111 @@
+#BQL Interaction
+import blpapi
+
+# Establish a connection to the Bloomberg API
+sessionOptions = blpapi.SessionOptions()
+sessionOptions.setServerHost("localhost")  # Change to your Bloomberg Terminal server
+sessionOptions.setServerPort(8194)  # Default port for the Bloomberg API
+
+session = blpapi.Session(sessionOptions)
+if not session.start():
+    print("Failed to start Bloomberg session")
+    exit()
+
+# Create a request for BQL data
+request = session.createRequest("BeqsRequest")
+
+# Set BQL query
+bql_query = """
+    let(id = 'AAPL US Equity') 
+    get(PX_LAST {id})
+"""
+request.set("screenType", "BQL")
+request.set("screenDefinition", bql_query)
+
+# Send the request
+session.sendRequest(request)
+
+# Retrieve and process the response
+while True:
+    ev = session.nextEvent()
+    if ev.eventType() == blpapi.Event.RESPONSE:
+        for msg in ev:
+            if msg.messageType() == "BeqsResponse":
+                for row in msg.getElement("gridData").getElement("rows").values():
+                    print(row.getElement("PX_LAST").getValueAsFloat())
+    elif ev.eventType() == blpapi.Event.PARTIAL_RESPONSE:
+        pass  # Handle partial responses
+    elif ev.eventType() == blpapi.Event.REQUEST_STATUS:
+        if ev.messageType() == "Error":
+            print("Error:", ev.getElement("reasonDescription").getValue())
+        break
+
+# Clean up
+session.stop()
+
+
+
+
+##Standard BLP interaction
+import blpapi
+
+def bdp_with_field_overrides(security, fields, overrides):
+    sessionOptions = blpapi.SessionOptions()
+    sessionOptions.setServerHost("localhost")  # Change to your Bloomberg Terminal server
+    sessionOptions.setServerPort(8194)  # Default port for the Bloomberg API
+
+    session = blpapi.Session(sessionOptions)
+    if not session.start():
+        print("Failed to start Bloomberg session")
+        return None
+
+    try:
+        if not session.openService("//blp/refdata"):
+            print("Failed to open //blp/refdata")
+            return None
+
+        refDataService = session.getService("//blp/refdata")
+
+        request = refDataService.createRequest("ReferenceDataRequest")
+        request.append("securities", security)
+        request.append("fields", fields)
+
+        overrides_element = request.getElement("overrides")
+        for field, value in overrides.items():
+            override = overrides_element.appendElement()
+            override.setElement("fieldId", field)
+            override.setElement("value", value)
+
+        print("Sending Request:", request)
+        session.sendRequest(request)
+
+        data = {}
+        while True:
+            ev = session.nextEvent(500)
+            for msg in ev:
+                if msg.messageType() == "ReferenceDataResponse":
+                    for security_data in msg.getElement("securityData"):
+                        security = security_data.getElement("security").getValueAsString()
+                        field_data = security_data.getElement("fieldData")
+                        for field in field_data.elements():
+                            field_name = field.name()
+                            field_value = field.getValueAsString()
+                            data[field_name] = field_value
+
+            if ev.eventType() == blpapi.Event.RESPONSE:
+                break
+
+        return data
+    finally:
+        session.stop()
+
+# Example usage
+security = "AAPL US Equity"
+fields = ["PX_LAST", "EPS_ESTIMATES"]
+overrides = {"BLOOMBERG_FIELD_OVERRIDE": "override_value"}
+
+result = bdp_with_field_overrides(security, fields, overrides)
+
+if result:
+    for field, value in result.items():
+        print(f"{field}: {value}")
